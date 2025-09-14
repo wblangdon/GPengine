@@ -12,3 +12,14 @@ mg.code0       small output file
 s02317         seed initial population
 
 Linear GP run parameters are code in GPengine.h
+
+GPengine came orginally from Peter Nordin and was used
+in work with his "Elvis" humanoid robot
+http://gpbib.cs.ucl.ac.uk/gp-html/langdon_2001_elvis.html
+and later as the GP system investigating repeated patterns
+created by crossover in evolved linear programs
+http://gpbib.cs.ucl.ac.uk/gp-html/langdon_2005_CS.html
+
+Most recently GPengine has been used to power
+long term evolution experiments (LTEE) in linear genetic programming
+http://gpbib.cs.ucl.ac.uk/gp-html/Langdon_2025_IMOL.html
