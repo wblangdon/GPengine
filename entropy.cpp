@@ -1,4 +1,14 @@
-/*WBL 11 August 2025
+/*WBL 11 August 2025*/
+#ifndef NDEBUG
+extern const char* rev2 = "$Revision: 1.11 $";
+#else
+extern const char* rev2 = "$Revision: 1.11 $ NDEBUG";
+#endif
+
+//Modifications:
+//WBL 30 Dec 2025 make cout depend on NDEBUG
+
+/*
  * using STL for hash map so make this a separate file
  *rather than part of GPengine.cpp
  *
@@ -32,6 +42,16 @@ void increment(const uint64_t key){
   dat[key] += 1;
 }
 
+void hex8(const uint64_t key,ostream& out) {
+  uint64_t t = key;
+  for(int i=0;i<8;i++){
+    char buff[80];
+    sprintf(buff,"%d,",t & 255);
+    out<<buff<<flush;
+    t = t>>8;
+  }
+}
+
 inline double log2(double x){ return log(x)/log(2.0);}
 double entropy(){
   if(dat_n != 1201) {
@@ -43,12 +63,17 @@ double entropy(){
   for (Mymap::const_iterator it = dat.begin();
        it != dat.end(); ++it) {
     //cout << " [ " << it->first << " " << it->second << " ]";
+#ifndef NDEBUG
+    hex8(it->first,cout); cout << ":" << it->second << " ";
+#endif
     const double p = double(it->second)/double(dat_n);
     const double h_ = -p * log2(p);
     //cout << " p == " << p << " h_ == " << h_ <<endl;
     h += h_;
   }
-  //cout << endl;
+#ifndef NDEBUG
+  cout << endl;
+#endif
   return h;
 }
 

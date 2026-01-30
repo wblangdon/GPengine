@@ -1,6 +1,8 @@
 //main.cpp of GPengine
 //W.B.Langdon @ cs.ucl.ac.uk 23 August 2000 Elvis Hand-Eye cordination experiment
 //Changes
+//WBL 30 Dec 2025 display GenerateLimit
+//WBL 21 Jul 2025 Make log optional, add pthreads
 //WBL 19 Jun 2025 Add seed and display last pseudo-random number
 //WBL 19 Jun 2025 Redo Mackey-Glass cf geccolb.tex r1.20, complex-systems.tex r1.30
 //WBL 19 Jun 2025 For Linux g++ 11.5.0
@@ -17,7 +19,7 @@
 #include "GPengine.h"
 //#include <assert.h>
 #include <sys/timeb.h>
-
+#include <sys/sysinfo.h>
 
 BOOL dataspec::add(const int pos) 
 {
@@ -68,21 +70,27 @@ int dataspec::Max()  const { return max; }
 #include "GPfunc.cpp"
 #endif
 
+int nthreads = -1;
+extern const char* rev;
+extern const char* rev2;
+//Bit of a klundge cannot set nthreads to zero, eg T0 fails
 int main(const int argc, const char *argv[])
 {
     if (argc < 5)    /* Test for correct number of arguments */
     {
-        fprintf(stderr, "Usage: %s <infile> <outfile> <innn>* <onnn>* seed\n", argv[0]);
+        fprintf(stderr, "Usage: %s <infile> [outfile] <innn>* <onnn>* [sseed] [tthreads]\n", argv[0]);
         exit(1);
     }
 
 	dataspec input;
 	dataspec output;
 	int seed = -1;
-	for(int i=3;i<argc;i++) {
+	const int ofile = (strchr(argv[2],'.')!=NULL); //eg file.out
+	for(int i = ofile? 3:2; i<argc;i++) {
 		if(((*argv[i]=='i' || *argv[i]=='I') && ( input.add(atoi(&argv[i][1]))))  ||
 		   ((*argv[i]=='o' || *argv[i]=='O') && (output.add(atoi(&argv[i][1]))))  ||
-		   ((*argv[i]=='s' || *argv[i]=='S') &&       (seed=atoi(&argv[i][1]))) ) {}
+		   ((*argv[i]=='s' || *argv[i]=='S') &&       (seed=atoi(&argv[i][1])))   ||
+		   ((*argv[i]=='t' || *argv[i]=='T') &&   (nthreads=atoi(&argv[i][1]))) ) {}
 		else {
 			fprintf(stderr, "Bad Column specifier %s. Usage: innn or onnn \n", argv[i]);
 	        exit(1);
@@ -90,27 +98,47 @@ int main(const int argc, const char *argv[])
 	}
 
 	ofstream log;
-	log.open(argv[2], ios::app);
+	if(ofile) log.open(argv[2], ios::app);
 #ifdef elvis
 	cout<<  "#GPengine $Revision 1.00 $ WBL 29 August 2000 ";
-	log << "//GPengine $Revision 1.00 $ WBL 29 August 2000 ";
+	if(log) log << "//GPengine $Revision 1.00 $ WBL 29 August 2000 ";
 #else
-	cout<<  "#GPengine $Revision: 1.17 $ WBL June 2025 ";
-	log << "//GPengine $Revision: 1.17 $ WBL June 2025 ";
+	cout<<  "#GPengine $Revision: 1.25 $";
+	if(rev  && strlen(rev) >11) cout<<" rev="<<&rev[11]<<flush;
+	if(rev2 && strlen(rev2)>11) cout<<" re2="<<&rev2[11]<<flush;
+	cout<<  " WBL December 2025 "<<flush;
 #endif
 	{for(int i=0; i<argc; i++) cout<< argv[i] << " ";}
-	{for(int i=0; i<argc; i++) log << argv[i] << " ";}
+	{for(int i=0; i<argc; i++) if(log) log << argv[i] << " ";}
 	if(seed>0) {
-	  cout<< "seed " <<seed<< " ";
-	  log << "seed " <<seed<< " ";
+	  cout<< "seed=" <<seed<< " ";
+	  if(log) log << "seed=" <<seed<< " ";
 	  srand(seed);
 	}
+        { const int n = get_nprocs();
+	  if(nthreads == -1) nthreads = n;
+	  else if(nthreads > n)
+	    cerr << "Warning asked for more threads "
+		 << nthreads << " than we have "<<n<<endl;
+	}
+	cout<< "threads=" <<nthreads<< " ";
+	if(log) log << "threads=" <<nthreads<< " ";
+	if(nthreads < 1){
+	  cerr << "Bad nthreads "<<nthreads<<endl;
+	  exit(1);
+	}
+	if(log) {
+	  cout<< argv[2] << " ";
+	  log << argv[2] << " ";
+	}
+	cout<< "GenerateLimit=" <<GenerateLimit<< " ";
+	if(log) cout<< "GenerateLimit=" <<GenerateLimit<< " ";
 	//https://stackoverflow.com/questions/36927699/how-to-correctly-use-ctime-to-print-different-time-stamps
-	time_t t1 = time(NULL);
+	{const time_t t1 = time(NULL);
 	cout<< ctime(&t1) << endl;
-	log << ctime(&t1) << endl;
-
-	CGPengine GP;	
+	if(log) log << ctime(&t1) << endl;
+	}
+	CGPengine GP;
 	
 	GP.Init();
 
@@ -122,18 +150,23 @@ int main(const int argc, const char *argv[])
 	GP.LoadRun();
 #else
 	GP.GeneratePop();
-	GP.GenerateBestCode( 0,log);
+	GP.GenerateBestCode( 0/*,log*/);
 
 	GP.Evolve(log);
 
-	GP.GenerateBestCode(-1,log);
-
-	//getch();
+	GP.GenerateBestCode(-1/*,log*/);
+#ifndef stats
+	if(log) GP.GenerateBestCode(log);
+#endif /*not stats*/
 
 	const int last_rand = rand();
-	cout<<  "#last random number "<<last_rand<<endl;
-	log << "//last random number "<<last_rand<<endl;
-	log.close();
+	cout<<  "#last random number "<<last_rand<<" ";
+	if(log) log << "//last random number "<<last_rand<<" ";
+	{const time_t t1 = time(NULL);
+	cout<< ctime(&t1) << endl;
+	if(log) log << ctime(&t1) << endl;
+	}
+	if(log) log.close();
 #endif /*gpfunc*/
 
 	return 0;
