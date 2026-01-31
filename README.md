@@ -1,4 +1,5 @@
-# GPengine
+# GPengine: Linear Genetic Programming
+# January 2026 Linux parallel pthreads and Intel AVX-512 vector instructions
 ```
 Down load source files. Download chaotic time series mg_int_128.dat
 Compile with: make -f GPengine.make
