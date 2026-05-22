@@ -1,8 +1,8 @@
 #if defined __skylake_avx512__ 
-extern const char* rev = "$Revision: 1.129 $ AVX512";
+extern const char* rev = "$Revision: 1.149 $ AVX512";
 #include <immintrin.h>
 #else
-extern const char* rev = "$Revision: 1.129 $";
+extern const char* rev = "$Revision: 1.149 $";
 #endif
 #if defined __skylake__
 error not written yet
@@ -12,6 +12,9 @@ error not written yet
 //////////////////////////////////////////////////////////////////////
 //W.B.Langdon @ cs.ucl.ac.uk 23 August 2000 Elvis Hand-Eye cordination experiment
 //Changes
+//WBL 18 May 2026 cf r1.126 use parallel simplify, remove timing code
+//WBL 25 Apr 2026 switch to parallel Simplify8
+//WBL 23 Apr 2026 perf instructions (not elapsed time)
 //WBL 14 Dec 2025 apply simplified avx_20251118_1763483201.dif
 //WBL 11 Dec 2025 Add __skylake_avx512__ Interpret64 TODO add Magpie patch
 //WBL 23 Sep 2025 Add rev
@@ -1086,7 +1089,6 @@ void CGPengine::Evolve(ostream& out)
 			GenerateBestCode(cnt);
 		
 		}
-			
 	}
 }
 
@@ -1628,8 +1630,9 @@ void* interpret(void* junk) {
 void CGPengine::CalcFitness(Individual &I)
 {
 #ifdef gpfunc
-	//const int fd = perf_start();
+	const int fd = perf_start();
 #endif /*gpfunc*/
+
 	evals++; //just for reporting stats
 	I.fitness = 0;
 	if(!Reg){
@@ -1652,7 +1655,7 @@ void CGPengine::CalcFitness(Individual &I)
 	    }
 	    Output[fcase] = FitnessCase->Output(fcase);
 	  }
-#ifndef NDEBUG
+#if 0 //ndef NDEBUG
 	  for (int I=0;I<FitnessCaseNum_*NumVar;I++) {
 	    if(I%64 ==  0) cout<<I/64/8<<" "<<(I/64)%8<<" Reg64["<<I<<"]= "<<flush;
 	    cout<<(int)Reg64[I]<<" "<<flush;
@@ -1660,7 +1663,7 @@ void CGPengine::CalcFitness(Individual &I)
 	  }
 #endif
 	}//endif setup Reg and Reg64
-#ifndef NDEBUG
+#if 0 //ndef NDEBUG
 	cout<<endl;
 	
 	for (int i=0;i<NumVar*FitnessCase->Num();i++) {
@@ -1675,7 +1678,7 @@ void CGPengine::CalcFitness(Individual &I)
 	retval s_output[1201]; //for sanity check
 	memset(s_output,252,FitnessCase->Num()*sizeof(retval)); //252 not in Mackey-Glass training data
 #endif
-#if (defined gpfunc) //|| (! (defined NDEBUG))
+#if 0 //(defined gpfunc) //|| (! (defined NDEBUG))
 	for (int i=0;i<FitnessCaseNum;i++) {
 	  Interpret(I.InstrLen, I.Instr, i, I.output[i]); //s_output[i]);
 	}
@@ -1690,23 +1693,25 @@ void CGPengine::CalcFitness(Individual &I)
 	if(FitnessCaseNum%16 != 15) cout<<endl;
 	//perf_end(fd,"CGPengine::CalcFitness(Individual) Interpret only");
 #endif
-#ifndef gpfunc
+#if(1) //ifndef gpfunc
 	/* Assume almost all overhead is here and each fitness case is similar.
 	 * So give each thread a fitness case until they are all finished.
 	 */
 	engine = this;
 	newguy = &I;
 	slot = 0;
-	pthread_t threads[nthreads];
-	for(int i=0;i<nthreads;i++) {
+	const int n = (FitnessCaseNum+63)/64;
+	const int mthreads = (n < nthreads)? n : nthreads; //avoid creating excess threads
+	pthread_t threads[mthreads];
+	for(int i=0;i<mthreads;i++) {
 	  const int e = pthread_create(&threads[i],NULL,interpret,NULL); 
 	  if(e!=0){
 	    cout<<"pthread_create(&threads["<<i<<"], NULL, thread_fitness) "
 		<<"returned error "<<e<<endl; //At least report, perhaps its a warning try to continue
           }
-        }//endfor nthreads
+        }//endfor mthreads
 	/* Wait for all threads to complete */
-	for(int i=0;i<nthreads;i++) {
+	for(int i=0;i<mthreads;i++) {
 	  const int e = pthread_join(threads[i], NULL);
 	  if(e!=0){ //Report, perhaps its a warning try to continue
 	    cout<<"pthread_join(threads["<<i<<"], NULL) "
@@ -1729,6 +1734,9 @@ void CGPengine::CalcFitness(Individual &I)
 #ifdef stats
 	if(I.fitness < BestFitness) BestFitness = I.fitness;
 #endif /*stats*/
+#ifdef gpfunc
+	perf_end(fd,"calcFitness");
+#endif /*gpfunc*/
 }
 
 /* replaced...
@@ -1829,8 +1837,8 @@ inline void add_active(int& active, const int reg1, const int reg2, const int op
   set(reg1);
   if(validvar(reg2)) set(reg2);
 }
-   //CGPengine::Simplify(const int InstrLen, const instr *Instr, int& InstrLen2, instr *Instr2)
-void CGPengine::Simplify(Individual &I, int* Needed/*=NULL*/) {
+
+void CGPengine::Simplify_nopar(Individual &I, int* Needed/*=NULL*/) {
 #ifdef gpfunc
   const int fd = perf_start();
 #endif /*gpfunc*/
@@ -1862,6 +1870,305 @@ void CGPengine::Simplify(Individual &I, int* Needed/*=NULL*/) {
   perf_end(fd,"Simplify");
 #endif /*gpfunc*/
 }
+#undef set
+#undef testactive
+#undef clear
+#undef addactive
+
+const uint64_t base = 0x0101010101010101;
+#define set(x) set_active8(active,x)
+inline void set_active8(uint64_t& active, const int reg){
+  assert(reg>=0 && reg < NumVar);
+  active = active | (base<<reg);
+  //assert(active>=0 & active < (1<<NumVar));
+}
+#define testactive(x) test_active8(active,x)
+inline uint64_t test_active8(const uint64_t active, const int reg){
+  assert(reg>=0 && reg < NumVar);
+  return (active & (base<<reg));
+}
+#define clear(x) clear_active8(active,x)
+inline void clear_active8(uint64_t& active, const int reg){
+  assert(reg>=0 && reg < NumVar);
+  active = active & (~(base<<reg));
+  //assert(active>=0 & active < (1<<NumVar));
+}
+#define addactive(x,a,b,c) add_active8(active,x,a,b,c)
+inline void add_active8(uint64_t& active,
+			const uint64_t needed,
+			const int reg1, const int reg2, const int op){
+  assert(reg1>=0 && reg1 < NumVar);
+  //reg2 can be validvar or junk
+
+  //check for special cases. NB protected division x/x depends on x
+  if(reg1==reg2 && op==1 /*CGPengine::minus*/) return;
+  //for each 8bit byte check if its regO is set, iff then set its reg1/reg2
+  //https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#ig_expand=880,1183,877,1183,877,877,1182,1181,876,1181,5174,913&text=pcmp
+  const uint64_t mask = (uint64_t)(~_mm_cmpeq_pi8((__m64)needed,(__m64)0ll));
+  /*const uint64_t ff  = 255; //must be unsigned 64bit
+  uint64_t      mask = 0;   //must be unsigned 64bit
+  for(int i=0;i<NumVar;i++){
+    if(needed & (ff<<(i*8))) mask = mask | (ff<<i*8);
+  }
+  assert(mask == m3);*/
+  active                    = active | (mask & (base<<reg1)); //set(reg1);
+  if(validvar(reg2)) active = active | (mask & (base<<reg2)); //if(v) set(reg2);
+}
+
+int mthreads; //active version nthreads for Simplify
+int last_barrier = 0;
+pthread_barrier_t barrier0;
+pthread_barrier_t barrier;
+pthread_t* threads = NULL; //[nthreads];
+#ifndef NDEBUG
+int*       threadi = NULL; //[nthreads];
+#endif
+uint64_t needed[MaxInstr];
+uint64_t neededA[MaxThreads];
+//for pthreads Reuse engine, newguy
+int    InstrLen2[MaxThreads]; //[nthreads];
+void mysync(const char* debug, const int task){
+  //Wait until all threads say they are done
+  //Gave up on signals and mutexes
+  //https://stackoverflow.com/questions/1105745/pthread-mutex-assertion-error
+  //Stack Overflow says can not release mutex locked by another thread
+  //CF https://pubs.opengroup.org/onlinepubs/9799919799/functions/pthread_mutex_lock.html
+  //https://www.ibm.com/docs/vi/aix/7.2.0?topic=p-pthread-barrier-wait-subroutine
+  //https://gist.github.com/shelterz/4b13459668eec743f15be6c200aa91b2
+  //printf("mysync(%s,%2d) %d\n",debug,task,mthreads);fflush(NULL);
+  
+  const int e = pthread_barrier_wait(&barrier);
+  assert(e==0 || e==PTHREAD_BARRIER_SERIAL_THREAD);
+}
+uint64_t transfer(const uint64_t in){
+  uint64_t out = 0;
+  uint64_t m1  = 1;
+  for(int i=0;i<8;i++){
+    uint64_t m8 = 0xff;
+    for(int j=0;j<8;j++){
+      if(in & m1) out = out | m8;
+      m1 = m1<<1;
+      m8 = m8<<8;
+    }
+    assert(m8 = 0xff0000000000000);
+  }
+  assert(  m1 = 0x100000000000000);
+  return out;
+/*
+  const int ab1 = a & 0xff; //registers reg0 depends on
+  assert(ab1 == 0x88); //hd hack for time being
+  const uint64_t maskb = 0xff000000ff000000; //hd
+  //https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#ig_expand=880,1183,877,1183,877,877,1182,1181,876,1181,5174,913,913,5797,5791,5801,5782,5872,5849,5819,271,2931&text=imm8
+  //const __m128i all_ones = _mm_set1_epi32(-1);
+  //_mm_extract_epi64 (all_ones, ab1);
+  //const uint64_t maskb = _mm_extract_epi64 (all_ones, ab1);
+  //const uint64_t maskb = (uint64_t)(~_mm_cmpeq_pi8((__m64)ab,(__m64)0ll));
+*/
+}
+
+uint64_t count_needed(const int topI, const int I, const int top, const int bot) {
+  //each threads repeat this
+  uint64_t mask = 0x00000000000000ff; //reg a
+  for(int i=topI;i>=I;i--) { //reverse order
+    assert(neededA[i+1] != 0x6565656565656565); //only for debug (rare pattern)
+    mask = transfer(neededA[i+1]);
+  }
+
+  int len2 = 0;
+  for (int j=bot;j<=top;j++) {
+    if(needed[j] & mask) len2++;
+  }
+  InstrLen2[I] = len2;
+  return mask;
+}//end count_needed
+int set_instr2(const uint64_t mask, const int I, const int top, const int bot) {
+  //each threads repeat this
+  int out = 0;
+  for(int i=0;i<I;i++) { //forward order
+    assert(InstrLen2[i] >= 0);
+    out += InstrLen2[i];
+  }
+
+  for (int j=bot;j<=top;j++) { //forward
+    if(needed[j] & mask){
+      const Individual* I = newguy;
+      memcpy(&I->Instr2[out], &I->Instr[j],sizeof(instr));
+      out++;
+    }
+  }
+  return out;
+}//end set_instr2
+
+//WBL 5 May 2026 from https://www.ibm.com/docs/en/zos/2.5.0?topic=functions-pthread-cond-wait-wait-condition-variable
+pthread_cond_t cond;
+//https://stackoverflow.com/questions/6954489/how-to-utilize-a-thread-pool-with-pthreads
+int nqueue = 0; //empty
+void queue_add(const int n){
+  {const int e = pthread_mutex_lock(&mutex);   assert(e==0);}
+  mthreads = n;
+  assert(nqueue==0);
+  nqueue = n;
+  {const int e = pthread_mutex_unlock(&mutex); assert(e==0);}
+  {const int e = pthread_cond_broadcast(&cond);assert(e==0);}
+}
+int queue_get(){ //const int debug){
+  {const int e = pthread_mutex_lock(&mutex);   assert(e==0);}
+  /* Wait for element to become available. */
+  while (nqueue==0) {
+    if(pthread_cond_wait(&cond, &mutex) != 0){
+      perror("pthread_cond_wait() error"); exit(7);}
+  }
+  /* We have an element. Pop it normally and return it */
+  assert(nqueue);
+  //const int n = nqueue - 1; //tasks start at 0
+  //nqueue--;
+  const int n = __atomic_sub_fetch(&nqueue,1,__ATOMIC_SEQ_CST);
+  {const int e = pthread_mutex_unlock(&mutex); assert(e==0);}
+  return n;
+}
+
+int   simplifya(const int i,const Individual &I, const int top, const int bot);
+void* simplify_thread(void* slot) {
+#ifndef NDEBUG
+  const int id = *(int*)slot;
+#endif
+  while(1) {
+    const int i = queue_get();
+    assert(i>=0);
+    assert(mthreads>0);
+    assert(i<mthreads);
+    Individual* I = newguy;
+    const int frag = I->InstrLen/mthreads;
+    const int bot = i*frag;
+    const int top = (i == mthreads-1)? I->InstrLen-1 : bot+frag-1;
+    const int len2 = simplifya(i,*I,top,bot);
+    mysync("        done",i); //ensure all threads have finished
+    if(i==mthreads-1) {
+      I->InstrLen2 = len2;
+      assert(newguy->InstrLen2 >= 0);
+    }
+    mysync("        done",i); //ensure all threads have finished
+    if(i==mthreads-1){
+      assert(newguy->InstrLen2 >= 0);
+      {const int e = pthread_barrier_wait(&barrier0);     //restart main thread
+	assert(e==0 || e==PTHREAD_BARRIER_SERIAL_THREAD);}
+    }
+  }//end forever loop
+}//end simplify_thread
+
+int simplifya(const int i, const Individual &I, const int top, const int bot) {
+  //if InstrLen small thread may have little to do
+  neededA[i] = engine -> CGPengine::SimplifyA(I,top,bot,needed);
+  mysync("count_needed",i);
+  const uint64_t mask = count_needed(mthreads-2,i,top,bot);
+  mysync("  set_instr2",i);
+  return set_instr2(mask,i,top,bot);
+}//end simplifya
+
+uint64_t CGPengine::SimplifyA(const Individual &I, const int top, const int bot,
+			  uint64_t* needed) {
+#if 0 //def gpfunc perf may not be ok with multiple threads
+  const int fd = perf_start();
+#endif /*gpfunc*/
+
+  //uint64_t active = 0; set(0); //init_active, output in all registers a-h, ie 0-7
+  uint64_t active = 0x8040201008040201; //init_active, output in all registers a-h, ie 0-7
+  int i;
+  //backwards pass
+  for(int i=top; i >= bot; i--){
+    assert(validInstr(I.Instr[i]));
+    const OP  val = I.Instr[i][0];
+    const int op1 = InstrReg(I.Instr[i][1]);
+    const OP  op  = I.Instr[i][2];
+    const int op2 = InstrArg(I.Instr[i][3]);
+    needed[i] = testactive(val);
+    clear(val);
+    addactive(needed[i],op1,op2,op);
+  }
+#if 0 //def gpfunc
+  perf_end(fd,"SimplifyA");
+#endif /*gpfunc*/
+  return active;
+}
+
+//aim for < 1 MByte per thread (leaves 48576 for others)
+const int target = 1000*1000/(sizeof(instr)+sizeof(uint64_t)+1);
+
+void CGPengine::Simplify8(Individual &I/*, int* Needed/*=NULL*/) {
+#ifdef gpfunc
+  const int fd = perf_start();
+#endif /*gpfunc*/
+  //based active.awk r1.4
+  //as well as receiving answer Needed serves as flag to prevent changes
+#ifndef NDEBUG
+  I.InstrLen2 = -1; //for debug sanity checks
+#endif
+  assert(nthreads<=MaxThreads);
+#ifndef NDEBUG
+  memset(neededA,0x65,nthreads*sizeof(uint64_t)); //rare pattern
+#endif
+  engine = this;
+  newguy = &I;
+  const int m = (I.InstrLen+target-1)/target;
+  const int N = (m < nthreads)? m : nthreads;
+  if(N==1) exit(99); //should be trapped by Simplify
+
+  if(threads==NULL) {//create thread pool with max number threads
+    threads = (pthread_t*)malloc(nthreads*sizeof(pthread_t));
+#ifndef NDEBUG
+    threadi =       (int*)malloc(nthreads*sizeof(int));
+    for(int i=0;i<nthreads;i++) {
+      threadi[i] = i;
+      const int e = pthread_create(&threads[i],NULL,simplify_thread,&threadi[i]); assert(e==0);
+    }
+#else
+    for(int i=0;i<nthreads;i++) {
+      pthread_create(&threads[i],NULL,simplify_thread,NULL);
+    }
+#endif
+  }//end //create thread pool
+  if(!last_barrier) {//barrier0 is to restart main thread
+    const int e = pthread_barrier_init(&barrier0, NULL, 2);
+    assert(e==0);
+  }
+  assert(N);
+  if(last_barrier != N) {
+    if(last_barrier) {
+      const int e = pthread_barrier_destroy(&barrier);
+      assert(e==0);
+    }
+    const int e = pthread_barrier_init(&barrier, NULL, N);
+    assert(e==0);
+    last_barrier = N;
+  }//end create barriers
+
+#ifndef NDEBUG
+  memset(InstrLen2,255,nthreads*sizeof(int));
+#endif
+  /*start mthreads */
+  queue_add(N);
+
+  /* Wait for all threads to complete */
+  const int ee = pthread_barrier_wait(&barrier0);
+  assert(ee==0 || ee==PTHREAD_BARRIER_SERIAL_THREAD);
+
+  assert(I.InstrLen2 >= 0);
+  assert(I.InstrLen  >= I.InstrLen2);
+  for(int i=0;i<mthreads;i++)   assert(InstrLen2[i]>=0);
+  for(int i=0;i<I.InstrLen2;i++)assert(validInstr(I.Instr2[i]));
+
+#ifdef gpfunc
+  perf_end(fd,"Simplify8");
+#endif /*gpfunc*/
+}//end Simplify8
+
+void CGPengine::Simplify(Individual &I, int* Needed/*=NULL*/) {
+  assert(I.InstrLen>0);
+  const int m = (I.InstrLen+target-1)/target;
+  if(m==1) Simplify_nopar(I,Needed);
+  else     Simplify8(I);
+}
+
 #ifdef stats
 void CGPengine::Interpret(const Individual &I, retval* output2) const {
   for (int i=0;i<FitnessCaseNum;i++) {

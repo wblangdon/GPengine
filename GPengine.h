@@ -3,6 +3,7 @@
 //////////////////////////////////////////////////////////////////////
 //W.B.Langdon @ cs.ucl.ac.uk 23 August 2000 Elvis Hand-Eye cordination experiment
 //Changes
+//WBL 23 Apr 2026 Add Simplify8 SimplifyA
 //WBL 11 Jul 2025 Add entropy
 //WBL 25 Jul 2025 Reduce MaxInstr to 1e5
 //WBL  4 Jul 2025 Add Simplify InstrLen2 Instr2 Changed
@@ -43,10 +44,12 @@ typedef double retval;
 typedef double OP;
 #else
 /*Mackey Glass chaotic time series geccolb.tex r1.20 gp.details*/
-//const int GenerateLimit = 500*(100000-1);
-const int GenerateLimit = 500*(500-1);
+const int GenerateLimit = 500*(100000-1);
+//const int GenerateLimit = 500*(500-1);
+//const int GenerateLimit = 100000;
 const int DefaultPopSize = 500;
 const int MaxInstr  = 4000000;
+const int MaxThreads = 256;
 const int MaxInitInstr = 14;
 const int PCrossover = 90;
 const int PMutation = 40;
@@ -219,6 +222,9 @@ public:
     int change2(const int looser, const int winner) const; //Instr2    differ
     int changeg(const int looser, const int winner) const; //genotypes differ
    void Simplify(Individual &I, int* Needed = NULL) /*const if Needed given*/;
+   void Simplify_nopar(Individual &I, int* Needed = NULL) /*const if Needed given*/;
+uint64_t SimplifyA(const Individual &I, const int top, const int bot, uint64_t* needed);
+   void Simplify8(Individual &I);
    void Interpret(const Individual &I, retval* output2) const;
    void Interpret(const int InstrLen, const instr *Instr, const int fcase, retval &output, retval* output2 = NULL) const;
 

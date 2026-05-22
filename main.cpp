@@ -1,6 +1,8 @@
 //main.cpp of GPengine
 //W.B.Langdon @ cs.ucl.ac.uk 23 August 2000 Elvis Hand-Eye cordination experiment
 //Changes
+//WBL 10 May 2026 add MaxThreads
+//WBL 23 Apr 2026 Run GPfunc without entropy.cpp
 //WBL 30 Dec 2025 display GenerateLimit
 //WBL 21 Jul 2025 Make log optional, add pthreads
 //WBL 19 Jun 2025 Add seed and display last pseudo-random number
@@ -72,7 +74,9 @@ int dataspec::Max()  const { return max; }
 
 int nthreads = -1;
 extern const char* rev;
+#ifndef gpfunc
 extern const char* rev2;
+#endif /*gpfunc*/
 //Bit of a klundge cannot set nthreads to zero, eg T0 fails
 int main(const int argc, const char *argv[])
 {
@@ -103,10 +107,12 @@ int main(const int argc, const char *argv[])
 	cout<<  "#GPengine $Revision 1.00 $ WBL 29 August 2000 ";
 	if(log) log << "//GPengine $Revision 1.00 $ WBL 29 August 2000 ";
 #else
-	cout<<  "#GPengine $Revision: 1.25 $";
+	cout<<  "#GPengine $Revision: 1.28 $";
 	if(rev  && strlen(rev) >11) cout<<" rev="<<&rev[11]<<flush;
+#ifndef gpfunc
 	if(rev2 && strlen(rev2)>11) cout<<" re2="<<&rev2[11]<<flush;
-	cout<<  " WBL December 2025 "<<flush;
+#endif /*gpfunc*/
+	cout<<  " WBL May 2026 "<<flush;
 #endif
 	{for(int i=0; i<argc; i++) cout<< argv[i] << " ";}
 	{for(int i=0; i<argc; i++) if(log) log << argv[i] << " ";}
@@ -117,6 +123,11 @@ int main(const int argc, const char *argv[])
 	}
         { const int n = get_nprocs();
 	  if(nthreads == -1) nthreads = n;
+	  else if(nthreads > MaxThreads) {
+	    cerr << "Error MaxThreads is "<<MaxThreads<<", "
+		 << nthreads << " is too many."<<endl;
+	    return 1;
+	  }
 	  else if(nthreads > n)
 	    cerr << "Warning asked for more threads "
 		 << nthreads << " than we have "<<n<<endl;
