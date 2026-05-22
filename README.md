@@ -60,3 +60,38 @@ Illegal instruction (core dumped)
 echo $status
 132
 ```
+
+# Long Term Evolution Experiments with Linear Genetic Programming
+Recent uses of GPengine include book chapter in 
+Recent Advances in Linear Genetic Programming
+to be published by Springer-Nature
+
+```
+@InCollection{Langdon:2026:raLGP,
+    author = "William B. Langdon",
+    title = "Long Term Evolution Experiments with Linear Genetic Programming",
+    booktitle = "Recent Advances in Linear Genetic Programming",
+    publisher = "Springer",
+    year = "2026",
+    editor = "Wolfgang Banzhaf and Ting Hu",
+    chapter = "4",
+    pages = "53--84",
+    note = "forthcoming",
+    keywords = "genetic algorithms, genetic programming, Autonomous open-ended learning in machines, LTEE, time series prediction, Voas PIE, information theory, failed disruption propagation, FDP, adiabatic irreversible arithmetic, population convergence",
+    URL = "http://solar.cs.ucl.ac.uk/pdf/Langdon_2026_raLGP.pdf",
+    URL = "http://www.cs.ucl.ac.uk/staff/W.Langdon/ftp/papers/Langdon_2026_raLGP.pdf",
+    code_url = "https://github.com/wblangdon/GPengine",
+    slide_url = "http://crest.cs.ucl.ac.uk/W.Langdon/langdon_24-feb-2026.pdf",
+    video_url = "http://crest.cs.ucl.ac.uk/W.Langdon/langdon_24-feb-2026.mp4",
+    slide_url = "http://crest.cs.ucl.ac.uk/W.Langdon/langdon_17-feb-2026.pdf",
+    video_url = "http://crest.cs.ucl.ac.uk/W.Langdon/langdon_17-feb-2026.mp4",
+    video_url = "https://youtu.be/2zVrnneZh7M",
+    size = "33 pages",
+    abstract = "Inspired by Richard Lenski's Long-Term Evolution Experiment, we use the quantised chaotic Mackey-Glass time series as a prolonged learning task for artificial evolution in the form of steady state linear genetic programming using multi-threaded AVX512 GPengine to reach 100000 generations, 4 million arithmetic instructions and speeds of up to the equivalent of 361 billion GP operations per second (3.61e+11 GPops) on a 3.1 GHz multi core computer. Typically finding hundreds of fitness improvements in the later stages of the runs. Long fit programs are typically robust to two point crossover and random point mutation. They loose entropy monotonically towards the entropy of the fitness target. However almost all their instructions, despite not being reversible, are isentropic, i.e. do not loose entropy, and instead shuffle information between registers.",
+    notes = "part of \cite{Banzhaf:2026:raLGP_book}
+
+    Uses \cite{langdon:2026:GI} and \cite{langdon:2025:eval_avx512}
+
+    Slides and video from Seminar 17 February 2026", 
+}
+```
